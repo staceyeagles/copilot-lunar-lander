@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Lunar Lander Game</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                background: #000;
+                color: #fff;
+                font-family: "Courier New", monospace;
+                overflow: hidden;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+            }
+
+            #gameContainer {
+                position: relative;
+                border: 2px solid #333;
+            }
+
+            #gameCanvas {
+                background: linear-gradient(
+                    to bottom,
+                    #001122 0%,
+                    #000011 50%,
+                    #000000 100%
+                );
+                display: block;
+            }
+
+            #hud {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                font-size: 16px;
+                line-height: 1.5;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            }
+
+            #message {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 24px;
+                font-weight: bold;
+                text-align: center;
+                background: rgba(0, 0, 0, 0.8);
+                padding: 20px;
+                border-radius: 10px;
+                border: 2px solid #fff;
+                display: none;
+            }
+
+            #controls {
+                position: absolute;
+                bottom: 10px;
+                left: 10px;
+                font-size: 12px;
+                line-height: 1.3;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            }
+
+            .win {
+                color: #00ff00;
+                border-color: #00ff00;
+            }
+
+            .lose {
+                color: #ff0000;
+                border-color: #ff0000;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="gameContainer">
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+            <div id="hud">
+                <div>Fuel: <span id="fuel">100</span>%</div>
+                <div>Velocity: <span id="velocity">0.0</span> m/s</div>
+                <div>Altitude: <span id="altitude">0</span> m</div>
+                <div>Angle: <span id="angle">0</span>°</div>
+            </div>
+
+            <div id="message">
+                <div id="messageText"></div>
+                <div style="margin-top: 10px; font-size: 16px">
+                    Press SPACE to ResTarT
+                </div>
+            </div>
+
+            <div id="controls">
+                <div>↑ - Thrust</div>
+                <div>← → - Rotate</div>
+                <div>SPACE - Restart (when game over)</div>
+            </div>
+        </div>
+
+        <script>
+            // Game constants
+            const CANVAS_WIDTH = 800;
+            const CANVAS_HEIGHT = 600;
+            const GRAVITY = 0.01;
+            const THRUST_POWER = 0.05;
+            const ROTATION_SPEED = 2;
+            const FUEL_CONSUMPTION = 0.25;
+            const SAFE_LANDING_VELOCITY = 2;
+            const SAFE_LANDING_ANGLE = 15;
+
+            // Get canvas and context
+            const canvas = document.getElementById("gameCanvas");
+            const ctx = canvas.getContext("2d");
+
+            // Game state
+            let gameState = "playing"; // 'playing', 'won', 'crashed'
+
+            // Player lander object
+            const lander = {
+                x: CANVAS_WIDTH / 2,
+                y: 100,
+                vx: 0,
+                vy: 0,
+                angle: 0,
+                fuel: 100,
+                size: 15,
+                thrustActive: false,
+            };
+
+            // Terrain points for landing surface
+            const terrain = [];
+            const landingPadX = CANVAS_WIDTH / 2 - 60;
+            const landingPadWidth = 120;
+            const landingPadY = CANVAS_HEIGHT - 50;
+
+            // Input handling
+            const keys = {};
+
+            // Initialize terrain
+            function initTerrain() {
+                terrain.length = 0;
+
+                // Create mountainous terrain with a flat landing pad
+                for (let x = 0; x <= CANVAS_WIDTH; x += 20) {
+                    let height;
+
+                    if (
+                        x >= landingPadX &&
+                        x <= landingPadX + landingPadWidth
+                    ) {
+                        // Flat landing pad
+                        height = landingPadY;
+                    } else {
+                        // Random mountainous terrain
+                        height = CANVAS_HEIGHT - 20 - Math.random() * 150;
+                    }
+
+                    terrain.push({ x: x, y: height });
+                }
+            }
+
+            // Reset game
+            function resetGame() {
+                lander.x = CANVAS_WIDTH / 2;
+                lander.y = 100;
+                lander.vx = 0;
+                lander.vy = 0;
+                lander.angle = 0;
+                lander.fuel = 100;
+                lander.thrustActive = false;
+                gameState = "playing";
+
+                document.getElementById("message").style.display = "none";
+            }
+
+            // Update game physics
+            function update() {
+                if (gameState !== "playing") return;
+
+                // Handle input
+                if (keys["ArrowLeft"]) {
+                    lander.angle -= ROTATION_SPEED;
+                }
+                if (keys["ArrowRight"]) {
+                    lander.angle += ROTATION_SPEED;
+                }
+
+                // Thrust
+                lander.thrustActive = false;
+                if (keys["ArrowUp"] && lander.fuel > 0) {
+                    lander.thrustActive = true;
+                    const angleRad = ((lander.angle - 90) * Math.PI) / 180;
+                    lander.vx += Math.cos(angleRad) * THRUST_POWER;
+                    lander.vy += Math.sin(angleRad) * THRUST_POWER;
+                    lander.fuel -= FUEL_CONSUMPTION;
+                    if (lander.fuel < 0) lander.fuel = 0;
+                }
+
+                // Apply gravity
+                lander.vy += GRAVITY;
+
+                // Update position
+                lander.x += lander.vx;
+                lander.y += lander.vy;
+
+                // Keep lander on screen horizontally
+                if (lander.x < 0) lander.x = CANVAS_WIDTH;
+                if (lander.x > CANVAS_WIDTH) lander.x = 0;
+
+                // Check for ground collision
+                checkCollision();
+
+                // Update HUD
+                updateHUD();
+            }
+
+            // Check collision with terrain
+            function checkCollision() {
+                // Simple collision detection - check if lander is below terrain at its position
+                for (let i = 0; i < terrain.length - 1; i++) {
+                    const point1 = terrain[i];
+                    const point2 = terrain[i + 1];
+
+                    if (lander.x >= point1.x && lander.x <= point2.x) {
+                        // Interpolate terrain height at lander position
+                        const ratio =
+                            (lander.x - point1.x) / (point2.x - point1.x);
+                        const terrainHeight =
+                            point1.y + (point2.y - point1.y) * ratio;
+
+                        if (lander.y + lander.size >= terrainHeight) {
+                            // Collision detected
+                            const velocity = Math.sqrt(
+                                lander.vx * lander.vx + lander.vy * lander.vy,
+                            );
+                            const angleDiff = Math.abs(lander.angle % 360);
+                            const normalizedAngle =
+                                angleDiff > 180 ? 360 - angleDiff : angleDiff;
+
+                            // Check if it's a safe landing
+                            if (
+                                velocity <= SAFE_LANDING_VELOCITY &&
+                                normalizedAngle <= SAFE_LANDING_ANGLE &&
+                                lander.x >= landingPadX &&
+                                lander.x <= landingPadX + landingPadWidth
+                            ) {
+                                // Safe landing!
+                                gameState = "won";
+                                lander.vx = 0;
+                                lander.vy = 0;
+                                lander.y = terrainHeight - lander.size;
+                                showMessage("MISSION is SUCCESSFUL!", "win");
+                            } else {
+                                // Crash!
+                                gameState = "crashed";
+                                lander.vx = 0;
+                                lander.vy = 0;
+                                lander.y = terrainHeight - lander.size;
+                                showMessage("LANDER CRASHED!", "lose");
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Check if lander is too high (off screen)
+                if (lander.y < -50) {
+                    lander.y = -50;
+                    lander.vy = 0;
+                }
+            }
+
+            // Show win/lose message
+            function showMessage(text, type) {
+                const messageEl = document.getElementById("message");
+                const messageTextEl = document.getElementById("messageText");
+
+                messageTextEl.textContent = text;
+                messageEl.className = type;
+                messageEl.style.display = "block";
+            }
+
+            // Update HUD display
+            function updateHUD() {
+                document.getElementById("fuel").textContent = Math.ceil(
+                    lander.fuel,
+                );
+
+                const velocity = Math.sqrt(
+                    lander.vx * lander.vx + lander.vy * lander.vy,
+                );
+                document.getElementById("velocity").textContent =
+                    velocity.toFixed(1);
+
+                const altitude = Math.max(
+                    0,
+                    Math.round((CANVAS_HEIGHT - lander.y - 50) / 5),
+                );
+                document.getElementById("altitude").textContent = altitude;
+
+                document.getElementById("angle").textContent = Math.round(
+                    lander.angle % 360,
+                );
+            }
+
+            // Draw everything
+            function draw() {
+                // Clear canvas
+                ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                // Draw stars
+                drawStars();
+
+                // Draw terrain
+                drawTerrain();
+
+                // Draw landing pad indicator
+                drawLandingPad();
+
+                // Draw lander
+                drawLander();
+
+                // Draw thrust effect
+                if (lander.thrustActive && gameState === "playing") {
+                    drawThrust();
+                }
+            }
+
+            // Draw background stars
+            function drawStars() {
+                ctx.fillStyle = "#fff";
+                for (let i = 0; i < 100; i++) {
+                    const x = (i * 123) % CANVAS_WIDTH;
+                    const y = (i * 456) % (CANVAS_HEIGHT / 2);
+                    const size = ((i * 789) % 3) + 1;
+                    ctx.fillRect(x, y, size, size);
+                }
+            }
+
+            // Draw terrain
+            function drawTerrain() {
+                ctx.beginPath();
+                ctx.moveTo(0, CANVAS_HEIGHT);
+
+                for (let i = 0; i < terrain.length; i++) {
+                    ctx.lineTo(terrain[i].x, terrain[i].y);
+                }
+
+                ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.closePath();
+
+                ctx.fillStyle = "#444";
+                ctx.fill();
+                ctx.strokeStyle = "#666";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            // Draw landing pad
+            function drawLandingPad() {
+                ctx.fillStyle = "#00ff00";
+                ctx.fillRect(landingPadX, landingPadY - 5, landingPadWidth, 5);
+
+                // Landing pad markers
+                ctx.fillStyle = "#ffff00";
+                ctx.fillRect(landingPadX - 5, landingPadY - 15, 10, 10);
+                ctx.fillRect(
+                    landingPadX + landingPadWidth - 5,
+                    landingPadY - 15,
+                    10,
+                    10,
+                );
+            }
+
+            // Draw the lander
+            function drawLander() {
+                ctx.save();
+                ctx.translate(lander.x, lander.y);
+                ctx.rotate((lander.angle * Math.PI) / 180);
+
+                // Lander body (triangle)
+                ctx.beginPath();
+                ctx.moveTo(0, -lander.size);
+                ctx.lineTo(-lander.size * 0.6, lander.size * 0.5);
+                ctx.lineTo(lander.size * 0.6, lander.size * 0.5);
+                ctx.closePath();
+
+                ctx.fillStyle = gameState === "crashed" ? "#ff0000" : "#00ccff";
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Landing legs
+                ctx.strokeStyle = "#ccc";
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(-lander.size * 0.4, lander.size * 0.3);
+                ctx.lineTo(-lander.size * 0.8, lander.size * 0.8);
+                ctx.moveTo(lander.size * 0.4, lander.size * 0.3);
+                ctx.lineTo(lander.size * 0.8, lander.size * 0.8);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            // Draw thrust effect
+            function drawThrust() {
+                ctx.save();
+                ctx.translate(lander.x, lander.y);
+                ctx.rotate((lander.angle * Math.PI) / 180);
+
+                // Thrust flame
+                const flameLength = 20 + Math.random() * 10;
+                ctx.beginPath();
+                ctx.moveTo(-5, lander.size * 0.5);
+                ctx.lineTo(0, lander.size * 0.5 + flameLength);
+                ctx.lineTo(5, lander.size * 0.5);
+                ctx.closePath();
+
+                ctx.fillStyle = "#ff6600";
+                ctx.fill();
+
+                // Inner flame
+                ctx.beginPath();
+                ctx.moveTo(-3, lander.size * 0.5);
+                ctx.lineTo(0, lander.size * 0.5 + flameLength * 0.7);
+                ctx.lineTo(3, lander.size * 0.5);
+                ctx.closePath();
+
+                ctx.fillStyle = "#ffff00";
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            // Main game loop
+            function gameLoop() {
+                update();
+                draw();
+                requestAnimationFrame(gameLoop);
+            }
+
+            // Event listeners
+            document.addEventListener("keydown", (e) => {
+                keys[e.code] = true;
+
+                // Restart game
+                if (e.code === "Space" && gameState !== "playing") {
+                    e.preventDefault();
+                    resetGame();
+                }
+            });
+
+            document.addEventListener("keyup", (e) => {
+                keys[e.code] = false;
+            });
+
+            // Prevent arrow keys from scrolling the page
+            document.addEventListener("keydown", (e) => {
+                if (
+                    [
+                        "ArrowUp",
+                        "ArrowDown",
+                        "ArrowLeft",
+                        "ArrowRight",
+                        "Space",
+                    ].includes(e.code)
+                ) {
+                    e.preventDefault();
+                }
+            });
+
+            // Initialize and start game
+            initTerrain();
+            resetGame();
+            gameLoop();
+        </script>
+    </body>
+</html>
