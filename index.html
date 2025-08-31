@@ -82,6 +82,8 @@
             <canvas id="gameCanvas" width="800" height="600"></canvas>
 
             <div id="hud">
+                <div>Level: <span id="level">1</span></div>
+                <div>Waypoints: <span id="waypoints">0</span>/<span id="waypointsTotal">0</span></div>
                 <div>Fuel: <span id="fuel">100</span>%</div>
                 <div>Velocity: <span id="velocity">0.0</span> m/s</div>
                 <div>Altitude: <span id="altitude">0</span> m</div>
@@ -91,7 +93,7 @@
             <div id="message">
                 <div id="messageText"></div>
                 <div style="margin-top: 10px; font-size: 16px">
-                    Press SPACE to ResTarT
+                    Press SPACE to restart / continue
                 </div>
             </div>
 
@@ -106,12 +108,51 @@
             // Game constants
             const CANVAS_WIDTH = 800;
             const CANVAS_HEIGHT = 600;
-            const GRAVITY = 0.01;
-            const THRUST_POWER = 0.05;
-            const ROTATION_SPEED = 2;
-            const FUEL_CONSUMPTION = 0.25;
             const SAFE_LANDING_VELOCITY = 2;
             const SAFE_LANDING_ANGLE = 15;
+
+            // Difficulty levels (progressively harder)
+            const levels = [
+                {
+                    name: "Easy",
+                    gravity: 0.008,
+                    thrust: 0.06,
+                    rotation: 2,
+                    fuel: 140,
+                    fuelConsumption: 0.18,
+                    padWidth: 140,
+                    terrainVariance: 120,
+                    requiredWaypoints: 2,
+                    obstacles: 1,
+                },
+                {
+                    name: "Normal",
+                    gravity: 0.01,
+                    thrust: 0.05,
+                    rotation: 2.2,
+                    fuel: 100,
+                    fuelConsumption: 0.25,
+                    padWidth: 110,
+                    terrainVariance: 160,
+                    requiredWaypoints: 3,
+                    obstacles: 2,
+                },
+                {
+                    name: "Hard",
+                    gravity: 0.014,
+                    thrust: 0.045,
+                    rotation: 2.6,
+                    fuel: 80,
+                    fuelConsumption: 0.32,
+                    padWidth: 80,
+                    terrainVariance: 200,
+                    requiredWaypoints: 4,
+                    obstacles: 3,
+                },
+            ];
+
+            let currentLevel = 0;
+            let activeConfig = levels[currentLevel];
 
             // Get canvas and context
             const canvas = document.getElementById("gameCanvas");
@@ -134,48 +175,119 @@
 
             // Terrain points for landing surface
             const terrain = [];
-            const landingPadX = CANVAS_WIDTH / 2 - 60;
-            const landingPadWidth = 120;
+            const waypoints = [];
+            let collectedWaypoints = 0;
+            const obstacles = [];
+            let landingPadX = CANVAS_WIDTH / 2 - 60;
+            let landingPadWidth = activeConfig.padWidth;
             const landingPadY = CANVAS_HEIGHT - 50;
 
             // Input handling
             const keys = {};
 
-            // Initialize terrain
+            // Initialize terrain using activeConfig.terrainVariance and pad position/width
             function initTerrain() {
                 terrain.length = 0;
+
+                // ensure landing pad width matches config
+                landingPadWidth = activeConfig.padWidth;
+
+                // Randomize landing pad X so levels feel different
+                landingPadX = Math.floor(
+                    100 + Math.random() * (CANVAS_WIDTH - 200 - landingPadWidth),
+                );
 
                 // Create mountainous terrain with a flat landing pad
                 for (let x = 0; x <= CANVAS_WIDTH; x += 20) {
                     let height;
 
-                    if (
-                        x >= landingPadX &&
-                        x <= landingPadX + landingPadWidth
-                    ) {
+                    if (x >= landingPadX && x <= landingPadX + landingPadWidth) {
                         // Flat landing pad
                         height = landingPadY;
                     } else {
-                        // Random mountainous terrain
-                        height = CANVAS_HEIGHT - 20 - Math.random() * 150;
+                        // Random mountainous terrain based on level variance
+                        height =
+                            CANVAS_HEIGHT - 20 - Math.random() * activeConfig.terrainVariance;
                     }
 
                     terrain.push({ x: x, y: height });
                 }
+                // create waypoints after terrain is ready
+                initWaypoints();
+                initObstacles();
             }
 
-            // Reset game
-            function resetGame() {
-                lander.x = CANVAS_WIDTH / 2;
+            // Initialize obstacles for the level
+            function initObstacles() {
+                obstacles.length = 0;
+                const count = activeConfig.obstacles || 0;
+                for (let i = 0; i < count; i++) {
+                    // spawn meteors off the top of the screen with downward velocity
+                    const x = Math.random() * CANVAS_WIDTH;
+                    const y = -20 - Math.random() * 400;
+                    const r = 8 + Math.random() * 18;
+                    const vx = (Math.random() * 2 - 1) * 1.5; // slight horizontal drift
+                    const vy = 2 + Math.random() * 3; // downward speed
+                    const spin = (Math.random() * 2 - 1) * 0.08;
+                    obstacles.push({ x, y, r, vx, vy, spin });
+                }
+            }
+
+            // Helper: get interpolated terrain height at x
+            function getTerrainHeightAt(x) {
+                // clamp
+                if (x <= 0) return terrain[0].y;
+                if (x >= CANVAS_WIDTH) return terrain[terrain.length - 1].y;
+
+                for (let i = 0; i < terrain.length - 1; i++) {
+                    const p1 = terrain[i];
+                    const p2 = terrain[i + 1];
+                    if (x >= p1.x && x <= p2.x) {
+                        const ratio = (x - p1.x) / (p2.x - p1.x);
+                        return p1.y + (p2.y - p1.y) * ratio;
+                    }
+                }
+                return CANVAS_HEIGHT;
+            }
+
+            // Initialize waypoints based on activeConfig.requiredWaypoints
+            function initWaypoints() {
+                waypoints.length = 0;
+                collectedWaypoints = 0;
+
+                const total = activeConfig.requiredWaypoints || 0;
+                for (let i = 0; i < total; i++) {
+                    // choose an X not too close to edges
+                    const x = 50 + Math.random() * (CANVAS_WIDTH - 100);
+                    const terrainH = getTerrainHeightAt(x);
+                    // place the waypoint above terrain, at variable height
+                    const y = Math.max(80, terrainH - (100 + Math.random() * 120));
+                    const r = 20;
+                    waypoints.push({ x, y, r, collected: false });
+                }
+                document.getElementById("waypoints").textContent = collectedWaypoints;
+                document.getElementById("waypointsTotal").textContent = waypoints.length;
+            }
+
+            // Reset game for the current activeConfig (keeps currentLevel)
+            function resetGame(reposition = true) {
+                // apply active config
+                lander.x = reposition ? CANVAS_WIDTH / 2 : lander.x;
                 lander.y = 100;
                 lander.vx = 0;
                 lander.vy = 0;
                 lander.angle = 0;
-                lander.fuel = 100;
+                lander.fuel = activeConfig.fuel;
                 lander.thrustActive = false;
+                landingPadWidth = activeConfig.padWidth;
                 gameState = "playing";
 
                 document.getElementById("message").style.display = "none";
+                document.getElementById("level").textContent = currentLevel + 1;
+                initTerrain();
+                // ensure waypoints HUD updated
+                document.getElementById("waypoints").textContent = collectedWaypoints;
+                document.getElementById("waypointsTotal").textContent = waypoints.length;
             }
 
             // Update game physics
@@ -184,10 +296,10 @@
 
                 // Handle input
                 if (keys["ArrowLeft"]) {
-                    lander.angle -= ROTATION_SPEED;
+                    lander.angle -= activeConfig.rotation;
                 }
                 if (keys["ArrowRight"]) {
-                    lander.angle += ROTATION_SPEED;
+                    lander.angle += activeConfig.rotation;
                 }
 
                 // Thrust
@@ -195,14 +307,14 @@
                 if (keys["ArrowUp"] && lander.fuel > 0) {
                     lander.thrustActive = true;
                     const angleRad = ((lander.angle - 90) * Math.PI) / 180;
-                    lander.vx += Math.cos(angleRad) * THRUST_POWER;
-                    lander.vy += Math.sin(angleRad) * THRUST_POWER;
-                    lander.fuel -= FUEL_CONSUMPTION;
+                    lander.vx += Math.cos(angleRad) * activeConfig.thrust;
+                    lander.vy += Math.sin(angleRad) * activeConfig.thrust;
+                    lander.fuel -= activeConfig.fuelConsumption;
                     if (lander.fuel < 0) lander.fuel = 0;
                 }
 
-                // Apply gravity
-                lander.vy += GRAVITY;
+                // Apply gravity (from level config)
+                lander.vy += activeConfig.gravity;
 
                 // Update position
                 lander.x += lander.vx;
@@ -214,6 +326,14 @@
 
                 // Check for ground collision
                 checkCollision();
+
+                // Check for waypoint collection
+                checkWaypoints();
+
+                // Check for obstacle collisions
+                checkObstacleCollision();
+                // Move meteors
+                updateObstacles();
 
                 // Update HUD
                 updateHUD();
@@ -249,19 +369,27 @@
                                 lander.x >= landingPadX &&
                                 lander.x <= landingPadX + landingPadWidth
                             ) {
-                                // Safe landing!
-                                gameState = "won";
-                                lander.vx = 0;
-                                lander.vy = 0;
-                                lander.y = terrainHeight - lander.size;
-                                showMessage("MISSION is SUCCESSFUL!", "win");
+                                // Require all waypoints collected to win
+                                if (collectedWaypoints >= waypoints.length) {
+                                    gameState = "won";
+                                    lander.vx = 0;
+                                    lander.vy = 0;
+                                    lander.y = terrainHeight - lander.size;
+                                    showMessage("MISSION is SUCCESSFUL! Press SPACE to continue to next level.", "win");
+                                } else {
+                                    gameState = "crashed";
+                                    lander.vx = 0;
+                                    lander.vy = 0;
+                                    lander.y = terrainHeight - lander.size;
+                                    showMessage("You missed waypoints! Press SPACE to retry.", "lose");
+                                }
                             } else {
                                 // Crash!
                                 gameState = "crashed";
                                 lander.vx = 0;
                                 lander.vy = 0;
                                 lander.y = terrainHeight - lander.size;
-                                showMessage("LANDER CRASHED!", "lose");
+                                showMessage("LANDER CRASHED! Press SPACE to retry level.", "lose");
                             }
                             break;
                         }
@@ -303,9 +431,114 @@
                 );
                 document.getElementById("altitude").textContent = altitude;
 
-                document.getElementById("angle").textContent = Math.round(
-                    lander.angle % 360,
-                );
+                // normalize angle to -180..180 for display
+                let displayAngle = ((lander.angle % 360) + 360) % 360;
+                if (displayAngle > 180) displayAngle -= 360;
+                document.getElementById("angle").textContent = Math.round(displayAngle);
+
+                // clamp and display fuel
+                document.getElementById("fuel").textContent = Math.max(0, Math.ceil(lander.fuel));
+                // waypoints
+                document.getElementById("waypoints").textContent = collectedWaypoints;
+                document.getElementById("waypointsTotal").textContent = waypoints.length;
+            }
+
+            // Check if lander passes through waypoints
+            function checkWaypoints() {
+                if (!waypoints || waypoints.length === 0) return;
+                for (let i = 0; i < waypoints.length; i++) {
+                    const wp = waypoints[i];
+                    if (wp.collected) continue;
+                    const dx = lander.x - wp.x;
+                    const dy = lander.y - wp.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist <= wp.r) {
+                        wp.collected = true;
+                        collectedWaypoints += 1;
+                        // Reward: restore 30% of level-starting fuel, clamp to level max
+                        const fuelGain = activeConfig.fuel * 0.3;
+                        lander.fuel = Math.min(activeConfig.fuel, lander.fuel + fuelGain);
+                    }
+                }
+            }
+
+            // Check collision with obstacles
+            function checkObstacleCollision() {
+                for (let i = 0; i < obstacles.length; i++) {
+                    const ob = obstacles[i];
+                    const dx = lander.x - ob.x;
+                    const dy = lander.y - ob.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist <= ob.r + lander.size * 0.6) {
+                        // immediate crash
+                        gameState = "crashed";
+                        lander.vx = 0;
+                        lander.vy = 0;
+                        showMessage("You hit an obstacle! Press SPACE to retry.", "lose");
+                        return;
+                    }
+                }
+            }
+
+            // Move meteors and respawn them if they exit the play area
+            function updateObstacles() {
+                for (let i = 0; i < obstacles.length; i++) {
+                    const ob = obstacles[i];
+                    ob.x += ob.vx;
+                    ob.y += ob.vy;
+                    // small spin can affect aesthetics if needed
+                    ob.r += Math.sin((Date.now() * 0.001 + i) * (ob.spin || 0)) * 0.02;
+
+                    // respawn if below screen or far off sides
+                    if (ob.y - ob.r > CANVAS_HEIGHT + 100 || ob.x < -200 || ob.x > CANVAS_WIDTH + 200) {
+                        ob.x = Math.random() * CANVAS_WIDTH;
+                        ob.y = -20 - Math.random() * 300;
+                        ob.vx = (Math.random() * 2 - 1) * 1.5;
+                        ob.vy = 2 + Math.random() * 3;
+                        ob.r = 8 + Math.random() * 18;
+                    }
+                }
+            }
+
+            // Draw waypoints
+            function drawWaypoints() {
+                for (let i = 0; i < waypoints.length; i++) {
+                    const wp = waypoints[i];
+                    ctx.beginPath();
+                    ctx.arc(wp.x, wp.y, wp.r, 0, Math.PI * 2);
+                    ctx.strokeStyle = wp.collected ? "#00ff00" : "#ffcc00";
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+
+                    // inner ring
+                    ctx.beginPath();
+                    ctx.arc(wp.x, wp.y, wp.r * 0.6, 0, Math.PI * 2);
+                    ctx.fillStyle = wp.collected ? "rgba(0,255,0,0.2)" : "rgba(255,204,0,0.08)";
+                    ctx.fill();
+                }
+            }
+
+            // Draw obstacles
+            function drawObstacles() {
+                for (let i = 0; i < obstacles.length; i++) {
+                    const ob = obstacles[i];
+                    // tail
+                    ctx.beginPath();
+                    ctx.moveTo(ob.x - ob.vx * 6, ob.y - ob.vy * 6);
+                    ctx.lineTo(ob.x - ob.vx * 2, ob.y - ob.vy * 2);
+                    ctx.strokeStyle = "rgba(255,150,50,0.35)";
+                    ctx.lineWidth = Math.max(2, ob.r * 0.4);
+                    ctx.stroke();
+
+                    // meteor body
+                    ctx.beginPath();
+                    ctx.arc(ob.x, ob.y, ob.r, 0, Math.PI * 2);
+                    ctx.fillStyle = "#ff9933";
+                    ctx.fill();
+                    ctx.strokeStyle = "#ffcc88";
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
             }
 
             // Draw everything
@@ -318,6 +551,12 @@
 
                 // Draw terrain
                 drawTerrain();
+
+                // Draw waypoints (behind lander)
+                drawWaypoints();
+
+                // Draw obstacles
+                drawObstacles();
 
                 // Draw landing pad indicator
                 drawLandingPad();
@@ -450,10 +689,26 @@
             document.addEventListener("keydown", (e) => {
                 keys[e.code] = true;
 
-                // Restart game
+                // Space handling: next level on win, retry on crash
                 if (e.code === "Space" && gameState !== "playing") {
                     e.preventDefault();
-                    resetGame();
+                    if (gameState === "won") {
+                        // advance level if possible
+                        if (currentLevel < levels.length - 1) {
+                            currentLevel += 1;
+                            activeConfig = levels[currentLevel];
+                            showMessage(`Starting level ${currentLevel + 1}: ${activeConfig.name}`, "");
+                        } else {
+                            showMessage("All levels complete! Restarting at Level 1.", "");
+                            currentLevel = 0;
+                            activeConfig = levels[currentLevel];
+                        }
+                        resetGame();
+                    } else if (gameState === "crashed") {
+                        // retry same level
+                        activeConfig = levels[currentLevel];
+                        resetGame();
+                    }
                 }
             });
 
