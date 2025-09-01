@@ -66,6 +66,55 @@
                 text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
             }
 
+            /* immunity HUD in the top-right corner */
+            #immunity {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                font-size: 16px;
+                background: rgba(0,0,0,0.6);
+                padding: 6px 10px;
+                border-radius: 6px;
+                border: 1px solid #44ff88;
+                color: #aaffcc;
+                display: none;
+                text-align: center;
+                min-width: 80px;
+            }
+
+            /* transient toast notification */
+            #toast {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8);
+                color: #fff;
+                padding: 8px 12px;
+                border-radius: 8px;
+                border: 1px solid #888;
+                display: none;
+                font-size: 18px;
+                pointer-events: none;
+            }
+
+            /* initial instructions overlay */
+            #instructions {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.9);
+                color: #fff;
+                padding: 18px 24px;
+                border-radius: 10px;
+                border: 2px solid #666;
+                max-width: 520px;
+                text-align: left;
+                font-size: 14px;
+                line-height: 1.4;
+            }
+
             .win {
                 color: #00ff00;
                 border-color: #00ff00;
@@ -85,6 +134,7 @@
                 <div>Level: <span id="level">1</span></div>
                 <div>Waypoints: <span id="waypoints">0</span>/<span id="waypointsTotal">0</span></div>
                 <div>Fuel: <span id="fuel">100</span>%</div>
+                <div>Ammo: <span id="ammo">0</span></div>
                 <div>Velocity: <span id="velocity">0.0</span> m/s</div>
                 <div>Altitude: <span id="altitude">0</span> m</div>
                 <div>Angle: <span id="angle">0</span>°</div>
@@ -100,7 +150,20 @@
             <div id="controls">
                 <div>↑ - Thrust</div>
                 <div>← → - Rotate</div>
-                <div>SPACE - Restart (when game over)</div>
+                <div>SPACE - Shoot (during play) / Restart (when game over)</div>
+            </div>
+            <div id="immunity">Immunity: <span id="immunityTimer">5</span>s</div>
+            <div id="toast"></div>
+            <div id="instructions">
+                <strong>How to play</strong>
+                <ul style="margin-top:8px">
+                    <li>Arrow Up: Thrust</li>
+                    <li>Left / Right: Rotate</li>
+                    <li>Space: Shoot (during play). When game over, Space restarts/advances.</li>
+                    <li>Collect waypoints to restore fuel and gain 5s asteroid immunity.</li>
+                    <li>Land on the green pad with low speed and near 0° to win.</li>
+                </ul>
+                <div style="margin-top:10px; text-align:center">Press <strong>SPACE</strong> to start</div>
             </div>
         </div>
 
@@ -120,7 +183,7 @@
                     thrust: 0.055,
                     rotation: 2,
                     fuel: 120,
-                    fuelConsumption: 0.2,
+                    fuelConsumption: 0.14,
                     padWidth: 130,
                     terrainVariance: 140,
                     requiredWaypoints: 2,
@@ -133,7 +196,7 @@
                     thrust: 0.045,
                     rotation: 2.3,
                     fuel: 90,
-                    fuelConsumption: 0.28,
+                    fuelConsumption: 0.20,
                     padWidth: 100,
                     terrainVariance: 180,
                     requiredWaypoints: 2,
@@ -146,7 +209,7 @@
                     thrust: 0.04,
                     rotation: 2.8,
                     fuel: 60,
-                    fuelConsumption: 0.36,
+                    fuelConsumption: 0.25,
                     padWidth: 70,
                     terrainVariance: 230,
                     requiredWaypoints: 2,
@@ -182,12 +245,29 @@
             const waypoints = [];
             let collectedWaypoints = 0;
             const obstacles = [];
+            // Bullets fired by the lander
+            const bullets = [];
+            const BULLET_SPEED = 8;
+            const BULLET_RADIUS = 3;
+            let lastShotTime = 0;
+            const SHOT_COOLDOWN = 150; // ms between shots
+            // Ammo tracking
+            let ammo = 10; // default, overwritten by level config
+            // store reason for last loss to generate tips
+            let lastLossReason = null; // 'crash', 'hit_obstacle', 'miss_waypoints'
+            // Immunity state (gained from waypoints)
+            let immunityActive = false;
+            let immunityEndsAt = 0;
             let landingPadX = CANVAS_WIDTH / 2 - 60;
             let landingPadWidth = activeConfig.padWidth;
             const landingPadY = CANVAS_HEIGHT - 50;
 
             // Input handling
             const keys = {};
+
+            // startup/obstacle timing
+            let firstStart = true;
+            let obstaclesStarted = false;
 
             // Initialize terrain using activeConfig.terrainVariance and pad position/width
             function initTerrain() {
@@ -218,7 +298,6 @@
                 }
                 // create waypoints after terrain is ready
                 initWaypoints();
-                initObstacles();
             }
 
             // Initialize obstacles for the level
@@ -258,8 +337,10 @@
             function initWaypoints() {
                 waypoints.length = 0;
                 collectedWaypoints = 0;
-
-                const total = activeConfig.requiredWaypoints || 0;
+                // Make each advanced level add one more waypoint than the previous.
+                // activeConfig.requiredWaypoints is the base per-level value; add currentLevel (0-based)
+                const base = activeConfig.requiredWaypoints || 0;
+                const total = base + currentLevel;
                 for (let i = 0; i < total; i++) {
                     // choose an X not too close to edges
                     const x = 50 + Math.random() * (CANVAS_WIDTH - 100);
@@ -288,10 +369,20 @@
 
                 document.getElementById("message").style.display = "none";
                 document.getElementById("level").textContent = currentLevel + 1;
+                // set level ammo (if not specified, keep default)
+                ammo = activeConfig.ammo || 10;
                 initTerrain();
+                // start obstacles immediately if we've already passed the initial instructions
+                if (!firstStart) {
+                    initObstacles();
+                    obstaclesStarted = true;
+                }
                 // ensure waypoints HUD updated
                 document.getElementById("waypoints").textContent = collectedWaypoints;
                 document.getElementById("waypointsTotal").textContent = waypoints.length;
+                // reset last loss reason
+                lastLossReason = null;
+                document.getElementById("ammo").textContent = ammo;
             }
 
             // Update game physics
@@ -339,6 +430,18 @@
                 // Move meteors
                 updateObstacles();
 
+                // disable immunity if time expired
+                if (immunityActive && Date.now() > immunityEndsAt) {
+                    immunityActive = false;
+                }
+
+                // Move bullets and handle bullet-obstacle collisions
+                updateBullets();
+                checkBulletCollisions();
+
+                // Update shrapnel visuals
+                updateShrapnel();
+
                 // Update HUD
                 updateHUD();
             }
@@ -379,12 +482,15 @@
                                     lander.vx = 0;
                                     lander.vy = 0;
                                     lander.y = terrainHeight - lander.size;
-                                    showMessage("MISSION is SUCCESSFUL! Press SPACE to continue to next level.", "win");
+                                    // compute the numeric next level (wrap to 1 if we're at the last configured level)
+                                    const nextLevelNumber = currentLevel < levels.length - 1 ? currentLevel + 2 : 1;
+                                    showMessage(`MISSION is SUCCESSFUL! Advancing to level: ${nextLevelNumber}. Press SPACE to continue.`, "win");
                                 } else {
                                     gameState = "crashed";
                                     lander.vx = 0;
                                     lander.vy = 0;
                                     lander.y = terrainHeight - lander.size;
+                                    lastLossReason = 'miss_waypoints';
                                     showMessage("You missed waypoints! Press SPACE to retry.", "lose");
                                 }
                             } else {
@@ -393,6 +499,7 @@
                                 lander.vx = 0;
                                 lander.vy = 0;
                                 lander.y = terrainHeight - lander.size;
+                                lastLossReason = 'crash';
                                 showMessage("LANDER CRASHED! Press SPACE to retry level.", "lose");
                             }
                             break;
@@ -411,6 +518,11 @@
             function showMessage(text, type) {
                 const messageEl = document.getElementById("message");
                 const messageTextEl = document.getElementById("messageText");
+                // If it's a lose message, append a contextual tip when available
+                if (type === "lose" && lastLossReason) {
+                    const tip = getTipForLoss(lastLossReason);
+                    if (tip) text += "\n\nTip: " + tip;
+                }
 
                 messageTextEl.textContent = text;
                 messageEl.className = type;
@@ -445,6 +557,17 @@
                 // waypoints
                 document.getElementById("waypoints").textContent = collectedWaypoints;
                 document.getElementById("waypointsTotal").textContent = waypoints.length;
+                // ammo
+                if (document.getElementById("ammo")) document.getElementById("ammo").textContent = ammo;
+                // immunity display
+                const immEl = document.getElementById("immunity");
+                if (immunityActive) {
+                    immEl.style.display = 'block';
+                    const remaining = Math.max(0, Math.ceil((immunityEndsAt - Date.now()) / 1000));
+                    document.getElementById('immunityTimer').textContent = remaining;
+                } else {
+                    immEl.style.display = 'none';
+                }
             }
 
             // Check if lander passes through waypoints
@@ -459,11 +582,29 @@
                     if (dist <= wp.r) {
                         wp.collected = true;
                         collectedWaypoints += 1;
-                        // Reward: restore 30% of level-starting fuel, clamp to level max
-                        const fuelGain = activeConfig.fuel * 0.3;
+                        // Reward: restore 40% of level-starting fuel, clamp to level max
+                        const fuelGain = activeConfig.fuel * 0.4;
                         lander.fuel = Math.min(activeConfig.fuel, lander.fuel + fuelGain);
+                        // grant 5 seconds of asteroid immunity
+                        immunityActive = true;
+                        immunityEndsAt = Date.now() + 5000;
+                        // show immunity immediately
+                        document.getElementById('immunity').style.display = 'block';
+                        document.getElementById('immunityTimer').textContent = '5';
+                        // small transient notification
+                        showToast('IMMUNITY', 900);
                     }
                 }
+            }
+
+            // Transient toast helper (non-blocking)
+            function showToast(text, duration = 900) {
+                const t = document.getElementById('toast');
+                t.textContent = text;
+                t.style.display = 'block';
+                setTimeout(() => {
+                    t.style.display = 'none';
+                }, duration);
             }
 
             // Check collision with obstacles
@@ -474,14 +615,41 @@
                     const dy = lander.y - ob.y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
                     if (dist <= ob.r + lander.size * 0.6) {
+                        // if immunity is active, ignore obstacle collisions
+                        if (immunityActive) {
+                            continue;
+                        }
                         // immediate crash
                         gameState = "crashed";
                         lander.vx = 0;
                         lander.vy = 0;
+                        lastLossReason = 'hit_obstacle';
                         showMessage("You hit an obstacle! Press SPACE to retry.", "lose");
                         return;
                     }
                 }
+            }
+
+            // Return a short tip string based on how the player lost
+            function getTipForLoss(reason) {
+                switch (reason) {
+                    case 'hit_obstacle':
+                        return 'Use bullets to clear meteors before they reach you, or steer around them. Try strafing and firing early.';
+                    case 'miss_waypoints':
+                        return 'Waypoints restore fuel — plan a path that passes through them before landing.';
+                    case 'crash':
+                        return 'Reduce vertical speed and keep the angle near 0° for a safe landing; use short thrust bursts.';
+                    default:
+                        return '';
+                }
+            }
+
+            function startObstaclesAfterDelay(ms) {
+                obstaclesStarted = false;
+                setTimeout(() => {
+                    initObstacles();
+                    obstaclesStarted = true;
+                }, ms);
             }
 
             // Move meteors and respawn them if they exit the play area
@@ -572,6 +740,10 @@
                 if (lander.thrustActive && gameState === "playing") {
                     drawThrust();
                 }
+
+                // Draw bullets and shrapnel on top
+                drawBullets();
+                drawShrapnel();
             }
 
             // Draw background stars
@@ -693,7 +865,25 @@
             document.addEventListener("keydown", (e) => {
                 keys[e.code] = true;
 
-                // Space handling: next level on win, retry on crash
+                // If it's the very first start and instructions are visible, Space starts the game and delays asteroids
+                if (firstStart && e.code === "Space") {
+                    e.preventDefault();
+                    // hide the instructions overlay
+                    document.getElementById('instructions').style.display = 'none';
+                    firstStart = false;
+                    // start obstacles after 2 seconds
+                    startObstaclesAfterDelay(2000);
+                    return;
+                }
+
+                // If playing and Space pressed -> shoot
+                if (e.code === "Space" && gameState === "playing") {
+                    e.preventDefault();
+                    fireBullet();
+                    return;
+                }
+
+                // Space handling when not playing: next level on win, retry on crash
                 if (e.code === "Space" && gameState !== "playing") {
                     e.preventDefault();
                     if (gameState === "won") {
@@ -701,7 +891,7 @@
                         if (currentLevel < levels.length - 1) {
                             currentLevel += 1;
                             activeConfig = levels[currentLevel];
-                            showMessage(`Starting level ${currentLevel + 1}: ${activeConfig.name}`, "");
+                            showMessage(`Starting level ${currentLevel + 1}`, "");
                         } else {
                             showMessage("All levels complete! Restarting at Level 1.", "");
                             currentLevel = 0;
@@ -734,6 +924,104 @@
                     e.preventDefault();
                 }
             });
+
+            // Fire a bullet from the lander in the direction it's facing
+            function fireBullet() {
+                const now = Date.now();
+                if (now - lastShotTime < SHOT_COOLDOWN) return; // cooldown
+                lastShotTime = now;
+
+                // check ammo
+                if (ammo <= 0) {
+                    // no ammo
+                    return;
+                }
+                ammo -= 1;
+                document.getElementById("ammo").textContent = ammo;
+
+                // bullet starts at tip of lander
+                const angleRad = ((lander.angle - 90) * Math.PI) / 180;
+                const bx = lander.x + Math.cos(angleRad) * (lander.size + 6);
+                const by = lander.y + Math.sin(angleRad) * (lander.size + 6);
+                const bvx = Math.cos(angleRad) * BULLET_SPEED + lander.vx;
+                const bvy = Math.sin(angleRad) * BULLET_SPEED + lander.vy;
+                bullets.push({ x: bx, y: by, vx: bvx, vy: bvy, r: BULLET_RADIUS, life: 2000, born: now });
+            }
+
+            function updateBullets() {
+                const now = Date.now();
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    const b = bullets[i];
+                    b.x += b.vx;
+                    b.y += b.vy;
+
+                    // remove if out of bounds or lifetime exceeded
+                    if (b.x < -50 || b.x > CANVAS_WIDTH + 50 || b.y < -50 || b.y > CANVAS_HEIGHT + 50 || now - b.born > b.life) {
+                        bullets.splice(i, 1);
+                    }
+                }
+            }
+
+            function checkBulletCollisions() {
+                // bullets vs obstacles (meteors)
+                for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                    const b = bullets[bi];
+                    for (let oi = obstacles.length - 1; oi >= 0; oi--) {
+                        const ob = obstacles[oi];
+                        const dx = b.x - ob.x;
+                        const dy = b.y - ob.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist <= b.r + ob.r) {
+                            // destroy obstacle and bullet
+                            bullets.splice(bi, 1);
+                            obstacles.splice(oi, 1);
+                            // spawn a small explosion effect (visual only)
+                            spawnShrapnel(ob.x, ob.y, ob.r);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // small visual shrapnel pieces when meteor is destroyed
+            const shrapnel = [];
+            function spawnShrapnel(x, y, size) {
+                const count = Math.min(6, Math.max(3, Math.floor(size / 4)));
+                for (let i = 0; i < count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 1 + Math.random() * 2;
+                    shrapnel.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 600, born: Date.now(), r: 1 + Math.random() * 2 });
+                }
+            }
+
+            function updateShrapnel() {
+                const now = Date.now();
+                for (let i = shrapnel.length - 1; i >= 0; i--) {
+                    const s = shrapnel[i];
+                    s.x += s.vx;
+                    s.y += s.vy;
+                    s.vy += 0.02; // slight gravity for visual
+                    if (now - s.born > s.life) shrapnel.splice(i, 1);
+                }
+            }
+
+            function drawBullets() {
+                ctx.fillStyle = "#ffff66";
+                for (let i = 0; i < bullets.length; i++) {
+                    const b = bullets[i];
+                    ctx.beginPath();
+                    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            function drawShrapnel() {
+                ctx.fillStyle = "#ffcc66";
+                for (let i = 0; i < shrapnel.length; i++) {
+                    const s = shrapnel[i];
+                    ctx.fillRect(s.x - s.r / 2, s.y - s.r / 2, s.r, s.r);
+                }
+            }
 
             // Initialize and start game
             initTerrain();
