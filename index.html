@@ -205,7 +205,7 @@
                 <div>Altitude: <span id="altitude">0</span> m</div>
                 <div>Angle: <span id="angle">0</span>°</div>
             </div>
-            <div id="earthMsgIndicator" title="New message from Earth" style="position:absolute; top:8px; left:50%; transform:translateX(-50%); background:#2b2b3a; padding:6px 10px; border-radius:8px; border:1px solid #555; display:none; font-size:13px;">New message (M)</div>
+            <div id="earthMsgIndicator" title="New message from Earth" style="position:absolute; top:8px; left:50%; transform:translateX(-50%); background:#2b2b3a; padding:6px 10px; border-radius:8px; border:1px solid #555; display:none; font-size:13px;">New message (U)</div>
 
             <div id="message">
                 <div id="messageText"></div>
@@ -214,25 +214,18 @@
                 </div>
             </div>
 
-            <div id="controls">
-                <div>↑ - Thrust</div>
-                <div>← → - Rotate</div>
-                <div>SPACE - Shoot (during play) / Restart (when game over)</div>
-            </div>
+            <div id="controls"></div>
             <div id="immunity">Immunity: <span id="immunityTimer">5</span>s</div>
             <div id="toast"></div>
             <div id="instructions">
                 <strong>How to play</strong>
                 <ul style="margin-top:8px">
-                    <li>Arrow Up: Thrust</li>
-                    <li>Left / Right: Rotate</li>
-                    <li>Space: Shoot (during play). When game over, Space restarts/advances.</li>
-                    <li>B: Credits</li>
-                    <li>M: Message from Earth (announcements)</li>
                     <li>Collect waypoints to restore fuel and gain 5s asteroid immunity.</li>
                     <li>Land on the green pad with low speed and near 0° to win.</li>
                 </ul>
-                <div style="margin-top:10px; text-align:center">Press <strong>SPACE</strong> to start</div>
+                <!-- placeholder where controls will be injected on first start -->
+                <div id="instructionsControls" style="margin-top:10px"></div>
+                <div style="margin-top:10px; text-align:center">Press <strong>SPACE</strong> to start — Press <strong>H</strong> anytime to view controls/help</div>
             </div>
             <div id="credits">
                 <div style="font-size:18px; font-weight:700; margin-bottom:8px">Credits</div>
@@ -243,6 +236,8 @@
                 <span class="close" id="updateClose">✕</span>
                 <div class="title">Message from Earth</div>
                 <div id="updateText"></div>
+                <div style="margin-top:8px; text-align:right"><button id="showChangelogBtn" style="background:#223; color:#fff; border:1px solid #445; padding:6px 8px; border-radius:6px; cursor:pointer">View recent updates (U)</button></div>
+                <div id="changelog" style="margin-top:10px; display:none; max-height:240px; overflow:auto; padding-top:8px; border-top:1px dashed #333"></div>
             </div>
             <div id="characterPanel">
                 <div class="title">Character Customization</div>
@@ -1153,18 +1148,30 @@
             // Short release text (a couple sentences) explaining what's new.
             const releaseNotes = 'A new update has occurred, it includes: Added Credits overlay (B key) and an update modal that announces changes. Press B to view credits by StaceyEagles.';
 
+            // Full changelog (most recent first)
+            const CHANGELOG = [
+                { version: '1.0.1', date: '2025-09-01', text: 'Added Credits overlay (B key), Recent updates modal (U), and character customization (C) with cosmetic unlocks.' },
+                { version: '1.0.0', date: '2025-08-25', text: 'Initial release: core lunar lander gameplay, waypoints, meteors, and landing mechanics.' }
+            ];
+
             function showUpdateIfNeeded() {
                 try {
                     const last = localStorage.getItem('copilot_lander_last_version');
                     if (last !== APP_VERSION) {
                         const modal = document.getElementById('updateModal');
                         const text = document.getElementById('updateText');
-                        text.textContent = 'Message from Earth: ' + releaseNotes;
-                        // show the update modal by default, but also allow it to be opened manually via M
+                        // If they never had a last-seen version, show the full changelog for newcomers
+                        if (!last) {
+                            renderChangelog();
+                            document.getElementById('changelog').style.display = 'block';
+                            text.textContent = 'Welcome! Here are recent updates:';
+                        } else {
+                            text.textContent = 'Message from Earth: ' + releaseNotes;
+                        }
+                        // show the update modal by default
                         modal.style.display = 'block';
-                        // show unread indicator until user explicitly opens it with M or closes
+                        // mark read and clear indicator
                         document.getElementById('earthMsgIndicator').style.display = 'none';
-                        // persist that user has seen this version
                         localStorage.setItem('copilot_lander_last_version', APP_VERSION);
                     }
                 } catch (err) {
@@ -1173,9 +1180,45 @@
                 }
             }
 
+            function renderChangelog(recentOnly = false) {
+                const box = document.getElementById('changelog');
+                box.innerHTML = '';
+                const now = Date.now();
+                const weekMs = 7 * 24 * 60 * 60 * 1000;
+                const entries = CHANGELOG.filter(entry => {
+                    if (!recentOnly) return true;
+                    if (!entry.date) return false;
+                    const d = new Date(entry.date);
+                    return now - d.getTime() <= weekMs;
+                });
+                if (entries.length === 0) {
+                    const none = document.createElement('div');
+                    none.textContent = 'No updates in the past week.';
+                    box.appendChild(none);
+                    return;
+                }
+                entries.forEach(entry => {
+                    const el = document.createElement('div');
+                    el.style.marginBottom = '8px';
+                    const dateStr = entry.date ? ` <span style="opacity:0.8; font-size:12px">(${entry.date})</span>` : '';
+                    el.innerHTML = `<strong>${entry.version}</strong>${dateStr}: ${entry.text}`;
+                    box.appendChild(el);
+                });
+            }
+
             document.getElementById('updateClose').addEventListener('click', function() {
                 document.getElementById('updateModal').style.display = 'none';
                 uiPaused = false;
+            });
+
+            document.getElementById('showChangelogBtn').addEventListener('click', function() {
+                const box = document.getElementById('changelog');
+                if (box.style.display === 'block') {
+                    box.style.display = 'none';
+                } else {
+                    renderChangelog();
+                    box.style.display = 'block';
+                }
             });
 
             // Show unread indicator if there's a newer version the user hasn't opened manually
@@ -1192,16 +1235,32 @@
                 }
             }
 
-            // open messages with M
+            // Note: M key removed — use U (recent updates) to view announcements
+
+            // Toggle instructions/help with H
             document.addEventListener('keydown', (e) => {
-                if (e.code === 'KeyM') {
+                if (e.code === 'KeyH') {
                     e.preventDefault();
+                    const instr = document.getElementById('instructions');
+                    if (instr.style.display === 'block') {
+                        instr.style.display = 'none';
+                        uiPaused = false;
+                    } else {
+                        instr.style.display = 'block';
+                        uiPaused = true;
+                    }
+                }
+            });
+
+            // Open recent updates with U (past week)
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyU') {
+                    e.preventDefault();
+                    renderChangelog(true);
                     const modal = document.getElementById('updateModal');
-                    const text = document.getElementById('updateText');
-                    text.textContent = 'Message from Earth: ' + releaseNotes;
                     modal.style.display = 'block';
+                    document.getElementById('changelog').style.display = 'block';
                     uiPaused = true;
-                    // mark as read
                     try { localStorage.setItem('copilot_lander_last_version', APP_VERSION); } catch (err) {}
                     document.getElementById('earthMsgIndicator').style.display = 'none';
                 }
@@ -1209,6 +1268,49 @@
 
             // initial indicator state
             setTimeout(refreshEarthIndicator, 600);
+
+            // --- Dynamic controls list ---
+            const CONTROLS = [];
+            function renderControls() {
+                const el = document.getElementById('controls');
+                el.innerHTML = '';
+                CONTROLS.forEach(c => {
+                    const d = document.createElement('div');
+                    d.textContent = c;
+                    el.appendChild(d);
+                });
+            }
+
+            function addControl(text) {
+                CONTROLS.push(text);
+                renderControls();
+            }
+
+            // populate defaults
+            addControl('↑ - Thrust');
+            addControl('← → - Rotate');
+            addControl('SPACE - Shoot (during play) / Restart (when game over)');
+            addControl('C - Character (customize)');
+            addControl('B - Credits');
+            addControl('H - Help (show How to play)');
+            addControl('U - Recent updates');
+
+            function renderControlsToInstructions() {
+                const container = document.getElementById('instructionsControls');
+                if (!container) return;
+                container.innerHTML = '<strong>Controls:</strong>';
+                const ul = document.createElement('ul');
+                ul.style.marginTop = '8px';
+                CONTROLS.forEach(c => {
+                    const li = document.createElement('li');
+                    li.textContent = c;
+                    ul.appendChild(li);
+                });
+                container.appendChild(ul);
+            }
+
+            // ensure instructions show controls on first start
+            renderControlsToInstructions();
 
             // show it after a short delay so it doesn't clash with initial instructions
             setTimeout(showUpdateIfNeeded, 800);
@@ -1275,9 +1377,11 @@
                     const panel = document.getElementById('characterPanel');
                     if (panel.style.display === 'block') {
                         panel.style.display = 'none';
+                        uiPaused = false;
                     } else {
                         populateExtras();
                         panel.style.display = 'block';
+                        uiPaused = true;
                     }
                 }
             });
@@ -1321,6 +1425,24 @@
 
                     ctx.save();
                     ctx.translate(lander.x, lander.y);
+
+                    // Draw immunity shield (circular) around the lander if active
+                    if (immunityActive) {
+                        const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() * 0.008));
+                        const shieldRadius = lander.size * 1.9;
+                        ctx.beginPath();
+                        ctx.arc(0, 0, shieldRadius, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(100,200,255,0.12)';
+                        ctx.globalAlpha = pulse * 0.9;
+                        ctx.fill();
+                        // ring outline
+                        ctx.globalAlpha = Math.min(1, pulse);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = 'rgba(100,200,255,0.9)';
+                        ctx.stroke();
+                        ctx.globalAlpha = 1;
+                    }
+
                     ctx.rotate((lander.angle * Math.PI) / 180);
 
                     // Lander body (triangle)
