@@ -115,6 +115,72 @@
                 line-height: 1.4;
             }
 
+            /* credits overlay (toggled with B) */
+            #credits {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.95);
+                color: #fff;
+                padding: 20px 26px;
+                border-radius: 10px;
+                border: 2px solid #888;
+                max-width: 420px;
+                text-align: center;
+                font-size: 16px;
+                line-height: 1.4;
+                display: none;
+            }
+
+            /* update modal for release notes */
+            #updateModal {
+                position: absolute;
+                top: 12px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(10,10,20,0.95);
+                color: #fff;
+                padding: 12px 18px;
+                border-radius: 8px;
+                border: 1px solid #555;
+                max-width: 640px;
+                text-align: left;
+                font-size: 14px;
+                line-height: 1.3;
+                display: none;
+                z-index: 9999;
+            }
+            #updateModal .title { font-weight:700; margin-bottom:6px }
+            #updateModal .close { float: right; cursor: pointer; opacity:0.85 }
+
+            /* character customization panel */
+            #characterPanel {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(6,6,12,0.98);
+                color: #fff;
+                padding: 18px 20px;
+                border-radius: 10px;
+                border: 2px solid #444;
+                max-width: 640px;
+                width: 90%;
+                display: none;
+                z-index: 10000;
+            }
+            #characterPanel .title { font-weight:700; font-size:18px; margin-bottom:8px }
+            #characterPanel .section { margin-top:10px }
+            #colorSwatches { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+            .swatch { width:34px; height:24px; border-radius:4px; border:2px solid #222; cursor:pointer }
+            .swatch.selected { outline:3px solid #fff }
+            .optionGrid { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+            .option { padding:6px 8px; background:#111; border:1px solid #333; border-radius:6px; cursor:pointer; opacity:0.95 }
+            .option.locked { opacity:0.3; position:relative }
+            .option.locked::after { content:'🔒'; position:absolute; right:6px; top:4px }
+            #characterPanel .closeBtn { margin-top:12px; text-align:right; cursor:pointer; color:#ddd }
+
             .win {
                 color: #00ff00;
                 border-color: #00ff00;
@@ -139,6 +205,7 @@
                 <div>Altitude: <span id="altitude">0</span> m</div>
                 <div>Angle: <span id="angle">0</span>°</div>
             </div>
+            <div id="earthMsgIndicator" title="New message from Earth" style="position:absolute; top:8px; left:50%; transform:translateX(-50%); background:#2b2b3a; padding:6px 10px; border-radius:8px; border:1px solid #555; display:none; font-size:13px;">New message (M)</div>
 
             <div id="message">
                 <div id="messageText"></div>
@@ -160,10 +227,34 @@
                     <li>Arrow Up: Thrust</li>
                     <li>Left / Right: Rotate</li>
                     <li>Space: Shoot (during play). When game over, Space restarts/advances.</li>
+                    <li>B: Credits</li>
+                    <li>M: Message from Earth (announcements)</li>
                     <li>Collect waypoints to restore fuel and gain 5s asteroid immunity.</li>
                     <li>Land on the green pad with low speed and near 0° to win.</li>
                 </ul>
                 <div style="margin-top:10px; text-align:center">Press <strong>SPACE</strong> to start</div>
+            </div>
+            <div id="credits">
+                <div style="font-size:18px; font-weight:700; margin-bottom:8px">Credits</div>
+                <div>VibeCoding by: <strong>StaceyEagles</strong></div>
+                <div style="margin-top:12px; font-size:12px; opacity:0.85">Press B or click anywhere to close</div>
+            </div>
+            <div id="updateModal">
+                <span class="close" id="updateClose">✕</span>
+                <div class="title">Message from Earth</div>
+                <div id="updateText"></div>
+            </div>
+            <div id="characterPanel">
+                <div class="title">Character Customization</div>
+                <div class="section">
+                    <div style="font-size:13px; opacity:0.9">Choose color</div>
+                    <div id="colorSwatches"></div>
+                </div>
+                <div class="section">
+                    <div style="font-size:13px; opacity:0.9">Extras (unlock every 2 levels)</div>
+                    <div id="extrasGrid" class="optionGrid"></div>
+                </div>
+                <div class="closeBtn" id="closeCharacter">Close (C)</div>
             </div>
         </div>
 
@@ -227,6 +318,8 @@
 
             // Game state
             let gameState = "playing"; // 'playing', 'won', 'crashed'
+            // UI pause flag: when true, update() will skip physics so the player can't die while reading UI
+            let uiPaused = false;
 
             // Player lander object
             const lander = {
@@ -388,6 +481,11 @@
             // Update game physics
             function update() {
                 if (gameState !== "playing") return;
+                if (uiPaused) {
+                    // still update HUD so timers/indicators reflect UI state, but skip physics
+                    updateHUD();
+                    return;
+                }
 
                 // Handle input
                 if (keys["ArrowLeft"]) {
@@ -883,6 +981,21 @@
                     return;
                 }
 
+                // Toggle credits overlay with B
+        if (e.code === 'KeyB') {
+                    e.preventDefault();
+                    const creditsEl = document.getElementById('credits');
+                    if (creditsEl.style.display === 'block') {
+            uiPaused = false;
+                        creditsEl.style.display = 'none';
+                    } else {
+                        // show credits and pause obstacles (visual only)
+            creditsEl.style.display = 'block';
+            uiPaused = true;
+                    }
+                    return;
+                }
+
                 // Space handling when not playing: next level on win, retry on crash
                 if (e.code === "Space" && gameState !== "playing") {
                     e.preventDefault();
@@ -908,6 +1021,12 @@
 
             document.addEventListener("keyup", (e) => {
                 keys[e.code] = false;
+            });
+
+            // Close credits overlay on click
+            document.getElementById('credits').addEventListener('click', function() {
+                this.style.display = 'none';
+                uiPaused = false;
             });
 
             // Prevent arrow keys from scrolling the page
@@ -1027,6 +1146,226 @@
             initTerrain();
             resetGame();
             gameLoop();
+
+            // --- Update notice logic ---
+            // Bump this value when you want the update modal to show with a short note.
+            const APP_VERSION = '1.0.1';
+            // Short release text (a couple sentences) explaining what's new.
+            const releaseNotes = 'A new update has occurred, it includes: Added Credits overlay (B key) and an update modal that announces changes. Press B to view credits by StaceyEagles.';
+
+            function showUpdateIfNeeded() {
+                try {
+                    const last = localStorage.getItem('copilot_lander_last_version');
+                    if (last !== APP_VERSION) {
+                        const modal = document.getElementById('updateModal');
+                        const text = document.getElementById('updateText');
+                        text.textContent = 'Message from Earth: ' + releaseNotes;
+                        // show the update modal by default, but also allow it to be opened manually via M
+                        modal.style.display = 'block';
+                        // show unread indicator until user explicitly opens it with M or closes
+                        document.getElementById('earthMsgIndicator').style.display = 'none';
+                        // persist that user has seen this version
+                        localStorage.setItem('copilot_lander_last_version', APP_VERSION);
+                    }
+                } catch (err) {
+                    // ignore storage errors silently
+                    console.warn('update modal error', err);
+                }
+            }
+
+            document.getElementById('updateClose').addEventListener('click', function() {
+                document.getElementById('updateModal').style.display = 'none';
+                uiPaused = false;
+            });
+
+            // Show unread indicator if there's a newer version the user hasn't opened manually
+            function refreshEarthIndicator() {
+                try {
+                    const last = localStorage.getItem('copilot_lander_last_version');
+                    if (last !== APP_VERSION) {
+                        document.getElementById('earthMsgIndicator').style.display = 'block';
+                    } else {
+                        document.getElementById('earthMsgIndicator').style.display = 'none';
+                    }
+                } catch (e) {
+                    console.warn(e);
+                }
+            }
+
+            // open messages with M
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyM') {
+                    e.preventDefault();
+                    const modal = document.getElementById('updateModal');
+                    const text = document.getElementById('updateText');
+                    text.textContent = 'Message from Earth: ' + releaseNotes;
+                    modal.style.display = 'block';
+                    uiPaused = true;
+                    // mark as read
+                    try { localStorage.setItem('copilot_lander_last_version', APP_VERSION); } catch (err) {}
+                    document.getElementById('earthMsgIndicator').style.display = 'none';
+                }
+            });
+
+            // initial indicator state
+            setTimeout(refreshEarthIndicator, 600);
+
+            // show it after a short delay so it doesn't clash with initial instructions
+            setTimeout(showUpdateIfNeeded, 800);
+
+            // --- Character customization ---
+            const COSMETICS = {
+                colors: [
+                    '#00ccff', '#ff66cc', '#66ff66', '#ffd166', '#ff8844', '#ffffff', '#8888ff'
+                ],
+                extras: [
+                    { id: 'none', name: 'None', unlockAt: 1 },
+                    { id: 'trail_blue', name: 'Blue Trail', unlockAt: 3 },
+                    { id: 'trail_pink', name: 'Pink Trail', unlockAt: 5 },
+                    { id: 'bow', name: 'Little Bow', unlockAt: 7 }
+                ]
+            };
+
+            // load saved cosmetics or defaults
+            const savedCos = JSON.parse(localStorage.getItem('copilot_lander_cosmetics') || 'null') || { color: COSMETICS.colors[0], extra: 'none' };
+
+            function persistCosmetics() {
+                localStorage.setItem('copilot_lander_cosmetics', JSON.stringify(savedCos));
+            }
+
+            // UI population
+            const colorSwatches = document.getElementById('colorSwatches');
+            COSMETICS.colors.forEach(c => {
+                const s = document.createElement('div');
+                s.className = 'swatch' + (savedCos.color === c ? ' selected' : '');
+                s.style.background = c;
+                s.addEventListener('click', () => {
+                    savedCos.color = c;
+                    document.querySelectorAll('.swatch').forEach(el => el.classList.remove('selected'));
+                    s.classList.add('selected');
+                    persistCosmetics();
+                });
+                colorSwatches.appendChild(s);
+            });
+
+            const extrasGrid = document.getElementById('extrasGrid');
+            function populateExtras() {
+                extrasGrid.innerHTML = '';
+                COSMETICS.extras.forEach(opt => {
+                    const div = document.createElement('div');
+                    const locked = (currentLevel + 1) < opt.unlockAt; // levels are 1-based for display
+                    div.className = 'option' + (locked ? ' locked' : '');
+                    div.textContent = opt.name;
+                    div.addEventListener('click', () => {
+                        if (locked) return;
+                        savedCos.extra = opt.id;
+                        persistCosmetics();
+                        populateExtras();
+                    });
+                    if (savedCos.extra === opt.id) div.style.outline = '2px solid #fff';
+                    extrasGrid.appendChild(div);
+                });
+            }
+            populateExtras();
+
+            // Toggle character panel with C
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyC') {
+                    e.preventDefault();
+                    const panel = document.getElementById('characterPanel');
+                    if (panel.style.display === 'block') {
+                        panel.style.display = 'none';
+                    } else {
+                        populateExtras();
+                        panel.style.display = 'block';
+                    }
+                }
+            });
+            document.getElementById('closeCharacter').addEventListener('click', () => {
+                document.getElementById('characterPanel').style.display = 'none';
+                uiPaused = false;
+            });
+
+            // Apply cosmetics during draw
+            const originalDrawLander = drawLander;
+            function drawTrail() {
+                // simple trailing particle line based on lander velocity
+                if (!savedCos.extra || savedCos.extra === 'none') return;
+                const colorMap = {
+                    'trail_blue': '#66ccff',
+                    'trail_pink': '#ff99dd'
+                };
+                const trailColor = colorMap[savedCos.extra] || '#66ccff';
+                const len = Math.min(10, Math.max(3, Math.floor(Math.hypot(lander.vx, lander.vy) * 2)));
+                for (let i = 0; i < len; i++) {
+                    const t = i / len;
+                    ctx.fillStyle = trailColor;
+                    ctx.globalAlpha = 1 - t * 0.85;
+                    ctx.beginPath();
+                    ctx.arc(lander.x - lander.vx * t * 2, lander.y - lander.vy * t * 2, 3 * (1 - t), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            // override drawLander to include color and bow
+            function drawLander() {
+                // Defensive: savedCos may not be defined during initial frames; fallback to original draw
+                try {
+                    const hasSaved = typeof savedCos !== 'undefined' && savedCos !== null;
+                    const extra = hasSaved ? savedCos.extra : null;
+                    const color = hasSaved && savedCos.color ? savedCos.color : (gameState === 'crashed' ? '#ff0000' : '#00ccff');
+
+                    // trail first if enabled
+                    if (extra && typeof extra === 'string' && extra.startsWith('trail')) drawTrail();
+
+                    ctx.save();
+                    ctx.translate(lander.x, lander.y);
+                    ctx.rotate((lander.angle * Math.PI) / 180);
+
+                    // Lander body (triangle)
+                    ctx.beginPath();
+                    ctx.moveTo(0, -lander.size);
+                    ctx.lineTo(-lander.size * 0.6, lander.size * 0.5);
+                    ctx.lineTo(lander.size * 0.6, lander.size * 0.5);
+                    ctx.closePath();
+
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // small bow ornament if unlocked
+                    if (extra === 'bow') {
+                        ctx.fillStyle = '#ff66cc';
+                        ctx.beginPath();
+                        ctx.ellipse(0, -lander.size - 6, 6, 4, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(-2, -lander.size - 8, 4, 2);
+                    }
+
+                    // Landing legs
+                    ctx.strokeStyle = '#ccc';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(-lander.size * 0.4, lander.size * 0.3);
+                    ctx.lineTo(-lander.size * 0.8, lander.size * 0.8);
+                    ctx.moveTo(lander.size * 0.4, lander.size * 0.3);
+                    ctx.lineTo(lander.size * 0.8, lander.size * 0.8);
+                    ctx.stroke();
+
+                    ctx.restore();
+                } catch (err) {
+                    // If anything goes wrong (race), fallback to the original drawing function if available
+                    try {
+                        if (typeof originalDrawLander === 'function') originalDrawLander();
+                    } catch (e) {
+                        // swallow
+                    }
+                }
+            }
         </script>
     </body>
 </html>
