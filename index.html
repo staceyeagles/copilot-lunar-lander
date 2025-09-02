@@ -218,7 +218,10 @@
             <div id="immunity">Immunity: <span id="immunityTimer">5</span>s</div>
             <div id="toast"></div>
             <div id="instructions">
-                <strong>How to play</strong>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <strong>How to play</strong>
+                    <a href="https://github.com/staceyeagles/copilot-lunar-lander/issues" target="_blank" rel="noopener noreferrer" style="color:#aaddff; text-decoration:none; font-size:13px">Problems or questions?</a>
+                </div>
                 <ul style="margin-top:8px">
                     <li>Collect waypoints to restore fuel and gain 5s asteroid immunity.</li>
                     <li>Land on the green pad with low speed and near 0° to win.</li>
@@ -230,13 +233,25 @@
             <div id="credits">
                 <div style="font-size:18px; font-weight:700; margin-bottom:8px">Credits</div>
                 <div>VibeCoding by: <strong>StaceyEagles</strong></div>
-                <div style="margin-top:12px; font-size:12px; opacity:0.85">Press B or click anywhere to close</div>
+                    <div style="margin-top:8px; font-size:13px;">
+                        <a href="https://github.com/staceyeagles/copilot-lunar-lander" target="_blank" rel="noopener noreferrer" style="color:#aaddff; text-decoration:none">View on GitHub</a>
+                        &nbsp;•&nbsp;
+                        <a href="https://github.com/staceyeagles/copilot-lunar-lander/issues" target="_blank" rel="noopener noreferrer" style="color:#ffccaa; text-decoration:none">Report an issue</a>
+                    </div>
+                    <div style="margin-top:8px; font-size:12px; opacity:0.85">Press B or click anywhere to close</div>
             </div>
             <div id="updateModal">
                 <span class="close" id="updateClose">✕</span>
                 <div class="title">Message from Earth</div>
                 <div id="updateText"></div>
-                <div style="margin-top:8px; text-align:right"><button id="showChangelogBtn" style="background:#223; color:#fff; border:1px solid #445; padding:6px 8px; border-radius:6px; cursor:pointer">View recent updates (U)</button></div>
+                <div style="margin-top:8px; text-align:right">
+                    <button id="showChangelogBtn" style="background:#223; color:#fff; border:1px solid #445; padding:6px 8px; border-radius:6px; cursor:pointer">View recent updates (U)</button>
+                </div>
+                <div style="margin-top:8px; font-size:13px">
+                    <a href="https://github.com/staceyeagles/copilot-lunar-lander" target="_blank" rel="noopener noreferrer" style="color:#aaddff; text-decoration:none">GitHub repo</a>
+                    &nbsp;•&nbsp;
+                    <a href="https://github.com/staceyeagles/copilot-lunar-lander/issues" target="_blank" rel="noopener noreferrer" style="color:#ffcc88; text-decoration:none">Create an issue</a>
+                </div>
                 <div id="changelog" style="margin-top:10px; display:none; max-height:240px; overflow:auto; padding-top:8px; border-top:1px dashed #333"></div>
             </div>
             <div id="characterPanel">
@@ -314,7 +329,8 @@
             // Game state
             let gameState = "playing"; // 'playing', 'won', 'crashed'
             // UI pause flag: when true, update() will skip physics so the player can't die while reading UI
-            let uiPaused = false;
+            // Start paused because the instructions overlay is shown on first load.
+            let uiPaused = true;
 
             // Player lander object
             const lander = {
@@ -961,9 +977,10 @@
                 // If it's the very first start and instructions are visible, Space starts the game and delays asteroids
                 if (firstStart && e.code === "Space") {
                     e.preventDefault();
-                    // hide the instructions overlay
+                    // hide the instructions overlay and resume the simulation
                     document.getElementById('instructions').style.display = 'none';
                     firstStart = false;
+                    uiPaused = false;
                     // start obstacles after 2 seconds
                     startObstaclesAfterDelay(2000);
                     return;
