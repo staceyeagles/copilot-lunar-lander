@@ -53,6 +53,7 @@
                 <button id="stepBtn" class="small">Step</button>
                 <button id="clearBtn" class="small">Clear</button>
                 <button id="randBtn" class="small">Random</button>
+                <button id="helpBtn" class="small">Help</button>
               </div>
               <div style="margin-top:8px">
                 <label>Speed: <span id="speedVal">8</span> gen/s</label>
@@ -75,7 +76,7 @@
 
             <div class="panel">
               <div style="font-size:13px">Mouse: Click/drag to draw cells</div>
-              <div class="muted" style="margin-top:6px">Space: Play/Pause • C: Clear • R: Random • S: Step</div>
+              <div class="muted" style="margin-top:6px">Space: Play/Pause • C: Clear • R: Random • S: Step • H: Help</div>
             </div>
 
             <footer class="muted">Conway's Game of Life — Single file demo</footer>
@@ -91,6 +92,41 @@
             <li>Try presets: Glider, Pulsar, Lightweight Gun, Random.</li>
           </ul>
           <div style="text-align:center;margin-top:10px"><button id="closeInstr">Got it (Space)</button></div>
+        </div>
+        
+        <!-- Help overlay: rules and controls -->
+        <div id="helpOverlay" class="overlay hidden">
+          <div style="font-weight:700;font-size:16px;margin-bottom:8px">Game of Life — Help</div>
+          <div style="line-height:1.45; font-size:14px; max-width:520px">
+            <strong>Rules</strong>
+            <ol>
+              <li>Any live cell with fewer than two live neighbours dies (underpopulation).</li>
+              <li>Any live cell with two or three live neighbours lives on to the next generation.</li>
+              <li>Any live cell with more than three live neighbours dies (overcrowding).</li>
+              <li>Any dead cell with exactly three live neighbours becomes a live cell (reproduction).</li>
+            </ol>
+
+            <strong>Controls & Tips</strong>
+            <ul>
+              <li>Click or drag to toggle cells.</li>
+              <li>Play/Pause (Space) runs generations at the selected speed.</li>
+              <li>Step (S) advances one generation while paused.</li>
+              <li>Clear (C) clears the board. Random (R) seeds a new random state.</li>
+              <li>Adjust cell size to zoom the grid; patterns will reflow to the new grid size.</li>
+              <li>Toggle edge wrapping to switch between toroidal and bounded behavior.</li>
+              <li>Use presets to place common patterns; try Glider, Pulsar, and lightweight guns.</li>
+            </ul>
+
+            <strong>Common patterns</strong>
+            <ul>
+              <li><em>Still lifes</em> — patterns that do not change (block, beehive).</li>
+              <li><em>Oscillators</em> — patterns that cycle periodically (blinkers, pulsars).</li>
+              <li><em>Spaceships</em> — patterns that translate across the board (gliders).</li>
+            </ul>
+          </div>
+          <div style="text-align:center;margin-top:10px">
+            <button id="closeHelp">Close (H)</button>
+          </div>
         </div>
       </div>
     </div>
@@ -156,6 +192,9 @@
       const presetsEl = document.getElementById('presets');
       const instr = document.getElementById('instructions');
       const closeInstr = document.getElementById('closeInstr');
+  const helpOverlay = document.getElementById('helpOverlay');
+  const helpBtn = document.getElementById('helpBtn');
+  const closeHelp = document.getElementById('closeHelp');
 
       // Populate presets buttons
       Object.keys(PRESETS).forEach(name => {
@@ -289,9 +328,15 @@
 
       // Interaction: toggle cells on click/drag
       function pointerToCell(ev){
+        // Map pointer (client) coordinates to canvas cell coordinates correctly
+        // taking into account the canvas display size vs its internal pixel size.
         const rect = canvas.getBoundingClientRect();
-        const x = Math.floor((ev.clientX - rect.left) / cellSize);
-        const y = Math.floor((ev.clientY - rect.top) / cellSize);
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const cx = (ev.clientX - rect.left) * scaleX;
+        const cy = (ev.clientY - rect.top) * scaleY;
+        const x = Math.floor(cx / cellSize);
+        const y = Math.floor(cy / cellSize);
         return {x,y};
       }
 
@@ -332,10 +377,35 @@
           if(!instr.classList.contains('hidden')){ instr.classList.add('hidden'); return; }
           playing = !playing; playBtn.textContent = playing ? 'Pause' : 'Play'; playBtn.classList.toggle('primary', playing);
         }
+        if(e.code === 'KeyH'){
+          // toggle help overlay
+          if(helpOverlay.classList.contains('hidden')){
+            showHelp();
+          } else {
+            hideHelp();
+          }
+        }
         if(e.code === 'KeyC'){ clearGrid(grid); gen=0; updateHUD(0); draw(); }
         if(e.code === 'KeyR'){ randomize(grid,0.18); gen=0; updateHUD(); draw(); }
         if(e.code === 'KeyS'){ step(); draw(); }
       });
+
+      // Help UI handlers
+      let wasPlayingBeforeHelp = false;
+      function showHelp(){
+        wasPlayingBeforeHelp = playing;
+        playing = false; // pause
+        playBtn.textContent = 'Play'; playBtn.classList.remove('primary');
+        helpOverlay.classList.remove('hidden');
+      }
+      function hideHelp(){
+        helpOverlay.classList.add('hidden');
+        // restore playing state
+        playing = !!wasPlayingBeforeHelp;
+        playBtn.textContent = playing ? 'Pause' : 'Play'; playBtn.classList.toggle('primary', playing);
+      }
+      helpBtn.addEventListener('click', showHelp);
+      closeHelp.addEventListener('click', hideHelp);
 
       // Preset application: center pattern on grid
       function applyPreset(name){
