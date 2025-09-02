@@ -582,7 +582,7 @@
                                     lander.y = terrainHeight - lander.size;
                                     // compute the numeric next level (wrap to 1 if we're at the last configured level)
                                     const nextLevelNumber = currentLevel < levels.length - 1 ? currentLevel + 2 : 1;
-                                    showMessage(`MISSION is SUCCESSFUL! Advancing to level: ${nextLevelNumber}. Press SPACE to continue.`, "win");
+                                    showMessage(`MISSION SUCCESSFUL! Advancing to level: ${nextLevelNumber}. Press SPACE to continue.`, "win");
                                 } else {
                                     gameState = "crashed";
                                     lander.vx = 0;
