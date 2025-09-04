@@ -603,13 +603,37 @@
                                     showMessage("You missed waypoints! Press SPACE to retry.", "lose");
                                 }
                             } else {
-                                // Crash!
-                                gameState = "crashed";
-                                lander.vx = 0;
-                                lander.vy = 0;
-                                lander.y = terrainHeight - lander.size;
-                                lastLossReason = 'crash';
-                                showMessage("LANDER CRASHED! Press SPACE to retry level.", "lose");
+                                // If immunity is active, bounce off the terrain instead of crashing.
+                                if (immunityActive) {
+                                    // place lander just above terrain and reflect/dampen velocity
+                                    lander.y = terrainHeight - lander.size - 1;
+                                    // invert vertical velocity and dampen
+                                    lander.vy = -lander.vy * 0.6;
+                                    // slightly reduce horizontal speed
+                                    lander.vx = lander.vx * 0.8;
+                                    // consume a chunk of immunity (reduce remaining time)
+                                    try {
+                                        // reduce remaining immunity by 2s, but leave at least 0
+                                        const remaining = Math.max(0, immunityEndsAt - Date.now());
+                                        const newRemaining = Math.max(0, remaining - 2000);
+                                        immunityEndsAt = Date.now() + newRemaining;
+                                        immunityActive = newRemaining > 0;
+                                    } catch (e) {
+                                        immunityActive = false;
+                                    }
+                                    // visual/feedback
+                                    showToast('BOUNCE!', 900);
+                                    // a small impact spray for visuals
+                                    if (typeof spawnShrapnel === 'function') spawnShrapnel(lander.x, terrainHeight, 8);
+                                } else {
+                                    // Crash!
+                                    gameState = "crashed";
+                                    lander.vx = 0;
+                                    lander.vy = 0;
+                                    lander.y = terrainHeight - lander.size;
+                                    lastLossReason = 'crash';
+                                    showMessage("LANDER CRASHED! Press SPACE to retry level.", "lose");
+                                }
                             }
                             break;
                         }
